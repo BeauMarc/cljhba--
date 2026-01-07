@@ -122,7 +122,7 @@ export class LiveVoiceClient {
   }
 
   private async handleServerMessage(message: LiveServerMessage) {
-    const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+    const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (base64Audio && this.outputAudioContext && this.outputNode) {
       this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
       
@@ -150,7 +150,7 @@ export class LiveVoiceClient {
       this.nextStartTime = 0;
     }
 
-    if (message.toolCall) {
+    if (message.toolCall?.functionCalls) {
         for (const fc of message.toolCall.functionCalls) {
             if (fc.name === 'lookup_policy') {
                 const args = fc.args as any;

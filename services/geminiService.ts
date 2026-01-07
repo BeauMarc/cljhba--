@@ -22,11 +22,21 @@ const lookupPolicyTool: FunctionDeclaration = {
 // Tool Wrapper
 const tools: Tool[] = [{ functionDeclarations: [lookupPolicyTool] }];
 
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.API_KEY || '' 
-});
+let ai: GoogleGenAI | null = null;
 
 let chatSession: Chat | null = null;
+
+const getAiClient = () => {
+  if (!import.meta.env.VITE_GEMINI_API_KEY) {
+    throw new Error("VITE_GEMINI_API_KEY is missing");
+  }
+
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  }
+
+  return ai;
+};
 
 // Base Role for the Chat Bot - CHINESE CONTEXT
 const CHAT_ROLE_CONTEXT = `
@@ -37,10 +47,11 @@ const CHAT_ROLE_CONTEXT = `
 `;
 
 export const initChatSession = () => {
+  const client = getAiClient();
   // GENERATE INSTRUCTION FROM JSON POLICY
   const fullSystemInstruction = generateSystemInstruction(CHAT_ROLE_CONTEXT);
 
-  chatSession = ai.chats.create({
+  chatSession = client.chats.create({
     model: 'gemini-3-flash-preview',
     config: {
       systemInstruction: fullSystemInstruction,
@@ -51,15 +62,13 @@ export const initChatSession = () => {
 };
 
 export const sendMessageToGemini = async (userMessage: string): Promise<string> => {
-  if (!process.env.API_KEY) {
-    return "错误：缺少 API Key，请检查环境变量配置。";
-  }
-
   if (!chatSession) {
     initChatSession();
   }
 
   try {
+    const client = getAiClient();
+
     if (!chatSession) throw new Error("Chat session failed to initialize");
 
     // 1. Send message to model
@@ -70,7 +79,10 @@ export const sendMessageToGemini = async (userMessage: string): Promise<string> 
     if (!candidates || candidates.length === 0) return "连接不稳定，请稍后重试。";
 
     const content = candidates[0].content;
-    const parts = content.parts;
+    const parts = content?.parts;
+    if (!parts || parts.length === 0) {
+      return response.text || "我理解您的请求，但暂时无法生成文本回复。";
+    }
 
     // Iterate through parts to find function calls
     for (const part of parts) {
@@ -79,7 +91,7 @@ export const sendMessageToGemini = async (userMessage: string): Promise<string> 
         
         if (fc.name === 'lookup_policy') {
             const args = fc.args as any;
-            const policyId = args.policyId;
+            const policyId = args?.policyId;
             
             // Execute Mock DB Logic
             const result = await queryPolicyDatabase(policyId);
@@ -119,7 +131,9 @@ export const sendMessageToGemini = async (userMessage: string): Promise<string> 
  */
 export const extractPolicyFromPdf = async (base64Pdf: string): Promise<Partial<PolicyData> | null> => {
     try {
-        const response = await ai.models.generateContent({
+        const client = getAiClient();
+
+        const response = await client.models.generateContent({
             model: 'gemini-2.5-flash', // Use Flash for efficient document processing
             contents: {
                 parts: [
